@@ -1,0 +1,44 @@
+# Visual Studio / .NET
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Build
+bin/
+obj/
+out/
+publish/
+
+# Rider/IDE
+.idea/
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# NuGet
+*.nupkg
+packages/
+
+# Logs
+*.log
+
+# Test
+TestResults/
+*.trx
+
+# Local user secrets
+secrets.json
+
+# Temporary
+*.tmp
+*.temp
+
+# Database
+*.db
+
+# icon cache
+IconCache.db
