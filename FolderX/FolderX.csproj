@@ -7,11 +7,42 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <ApplicationIcon>app.ico</ApplicationIcon>
+    <!-- 默认版本号，可在命令行或 CI 中覆盖： -p:Version=1.2.3 -->
+    <Version>1.0.0</Version>
   </PropertyGroup>
 
   <ItemGroup>
     <Resource Include="app.ico" />
     <PackageReference Include="System.Drawing.Common" Version="8.0.0" />
   </ItemGroup>
+
+  <!--
+    Create versioned copies of the built/published executable.
+    - For publishing, the published exe will be copied to e.g. FolderX-1.0.0.exe
+    - For regular builds, a copy will be created in the OutputPath as FolderX-1.0.0.exe
+    Override the Version using MSBuild / dotnet CLI: `-p:Version=1.2.3`.
+  -->
+  <Target Name="CreateVersionedBuildCopy" AfterTargets="Build">
+    <PropertyGroup>
+      <_BuildExe>$(OutputPath)$(AssemblyName)$(TargetExt)</_BuildExe>
+      <_VersionedBuildExe>$(OutputPath)$(AssemblyName)-$(Version)$(TargetExt)</_VersionedBuildExe>
+    </PropertyGroup>
+    <Message Text="Creating versioned build copy: $(_BuildExe) -> $(_VersionedBuildExe)" Importance="Low"/>
+    <Copy SourceFiles="$(_BuildExe)" DestinationFiles="$(_VersionedBuildExe)" Condition="Exists('$(_BuildExe)') and '$(Version)' != ''" SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="CreateVersionedPublishCopy" AfterTargets="Publish">
+    <PropertyGroup>
+      <!-- PublishDir is set during publish -->
+      <_PubDll>$(PublishDir)$(AssemblyName)$(TargetExt)</_PubDll>
+      <_VersionedPubDll>$(PublishDir)$(AssemblyName)-$(Version)$(TargetExt)</_VersionedPubDll>
+      <!-- apphost (exe) if produced in publish output -->
+      <_PubExeHost>$(PublishDir)$(AssemblyName).exe</_PubExeHost>
+      <_VersionedPubExeHost>$(PublishDir)$(AssemblyName)-$(Version).exe</_VersionedPubExeHost>
+    </PropertyGroup>
+    <Message Text="Creating versioned publish copies: $(_PubExeHost) -> $(_VersionedPubExeHost) ; $(_PubDll) -> $(_VersionedPubDll)" Importance="High"/>
+    <Copy SourceFiles="$(_PubExeHost)" DestinationFiles="$(_VersionedPubExeHost)" Condition="Exists('$(_PubExeHost)') and '$(Version)' != ''" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(_PubDll)" DestinationFiles="$(_VersionedPubDll)" Condition="Exists('$(_PubDll)') and '$(Version)' != ''" SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>
