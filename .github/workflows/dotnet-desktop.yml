@@ -1,0 +1,110 @@
+name: Build and Publish FolderX
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore FolderX.sln
+
+      - name: Build
+        run: dotnet build FolderX.sln -c Release --no-restore
+
+      - name: Publish (win-x64)
+        run: dotnet publish FolderX/FolderX.csproj -c Release -r win-x64 -o publish/win-x64
+
+      - name: Decode PFX
+        shell: pwsh
+        run: |
+          $pfx = [Convert]::FromBase64String("${{ secrets.Base64_Encoded_Pfx }}")
+          [IO.File]::WriteAllBytes("cert.pfx", $pfx)
+
+      - name: Sign published binaries
+        shell: pwsh
+        run: |
+          $pwd = "${{ secrets.Pfx_Key }}"
+          $publishDir = "publish/win-x64"
+          if (-not (Test-Path $publishDir)) { Write-Host "Publish directory not found: $publishDir"; exit 0 }
+
+          Write-Host "Looking for signtool on runner..."
+          $signtoolPath = $null
+          $cmd = Get-Command signtool -ErrorAction SilentlyContinue
+          if ($cmd) { $signtoolPath = $cmd.Source }
+          if (-not $signtoolPath) {
+            $kitsRoot = 'C:\Program Files (x86)\Windows Kits\10\bin'
+            if (Test-Path $kitsRoot) {
+              $found = Get-ChildItem $kitsRoot -Filter signtool.exe -Recurse -ErrorAction SilentlyContinue
+              if ($found) {
+                $preferred = $found | Where-Object { $_.FullName -match '\\x64\\' } | Select-Object -First 1
+                if (-not $preferred) { $preferred = $found | Where-Object { $_.FullName -match '\\x86\\' } | Select-Object -First 1 }
+                if (-not $preferred) { $preferred = $found | Select-Object -First 1 }
+                if ($preferred) { $signtoolPath = $preferred.FullName }
+              }
+            }
+          }
+
+          if ($signtoolPath) {
+            Write-Host "Using signtool: $signtoolPath"
+            Get-ChildItem $publishDir -Filter *.exe -File -Recurse | ForEach-Object {
+              Write-Host "Signing $($_.FullName)"
+              & $signtoolPath sign /fd SHA256 /a /f cert.pfx /p $pwd $_.FullName
+            }
+            Get-ChildItem $publishDir -Filter *.dll -File -Recurse | ForEach-Object {
+              Write-Host "Signing $($_.FullName)"
+              & $signtoolPath sign /fd SHA256 /a /f cert.pfx /p $pwd $_.FullName
+            }
+          } else {
+            Write-Host "signtool not found; falling back to PowerShell Set-AuthenticodeSignature"
+            try {
+              $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2("cert.pfx", $pwd, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable)
+            } catch {
+              Write-Host "Failed to load cert.pfx: $_"; exit 1
+            }
+            Get-ChildItem $publishDir -Filter *.exe -File -Recurse | ForEach-Object {
+              Write-Host "PSSigning $($_.FullName)"
+              Set-AuthenticodeSignature -FilePath $_.FullName -Certificate $cert -HashAlgorithm SHA256 | Format-List
+            }
+            Get-ChildItem $publishDir -Filter *.dll -File -Recurse | ForEach-Object {
+              Write-Host "PSSigning $($_.FullName)"
+              Set-AuthenticodeSignature -FilePath $_.FullName -Certificate $cert -HashAlgorithm SHA256 | Format-List
+            }
+          }
+
+      - name: Remove temporary PFX
+        shell: pwsh
+        run: |
+          if (Test-Path cert.pfx) { Remove-Item cert.pfx }
+
+      - name: Upload publish artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: FolderX-win-x64
+          path: publish/win-x64
+
+# Notes:
+# - This workflow is a minimal, working pipeline for this repository.
+# - The original file is a generic template that contains placeholder env values
+#   (Solution_Name, Wap_Project_Path, etc.) and signing steps. Those placeholders
+#   must be replaced or removed for the workflow to run successfully.
+# - If you need MSIX packaging and code signing, re-add the signing steps and
+#   set the following repository Secrets:
+#     - Base64_Encoded_Pfx  (base64 of .pfx)
+#     - Pfx_Key             (password for the .pfx)
+#   I can re-add a signing/packaging job after you confirm you want that.
